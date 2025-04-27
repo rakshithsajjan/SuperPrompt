@@ -1,0 +1,12 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Whenever you need details about the HTML structure, element selectors, or JavaScript interaction logic for a specific website (like ChatGPT or Claude), I will generate a prompt outlining the exact information required. You can then use this prompt with another LLM that has access to the full HTML source of the target page.
+
+You will keep prd.md, progress.md, dump.md  and rules.md in mind and refer to them as needed during our development process.
+You will dump (in dump.md) a detailed summary of whatever happened in the chat to transfer the context of our session to a new LLM instance. This outlines the project's vision, its current functional state, the significant challenges we overcame and our learnings and where we went wrong and our wrong asumptions. 
+
+
+
