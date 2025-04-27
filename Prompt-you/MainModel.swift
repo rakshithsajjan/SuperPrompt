@@ -7,6 +7,7 @@ enum AIProvider: String, CaseIterable {
     // Add claude later
     case claude = "Claude"
     case aistudio = "AI Studio"
+    case grok = "Grok"
 
     var defaultUrl: URL? {
         switch self {
@@ -18,6 +19,8 @@ enum AIProvider: String, CaseIterable {
             return URL(string: "https://claude.ai")!
         case .aistudio:
             return URL(string: "https://aistudio.google.com/app/prompts/new_chat")!
+        case .grok:
+            return URL(string: "https://grok.com")!
         }
     }
 
@@ -32,7 +35,7 @@ final class MainModel: ObservableObject {
         ChatPane(provider: .chatGPT, title: "ChatGPT"),
         ChatPane(provider: .claude, title: "Claude"),
         ChatPane(provider: .aistudio, title: "AI Studio"),
-        ChatPane(provider: .you, title: "You.com 2") // Example: Add another You.com pane
+        ChatPane(provider: .grok, title: "Grok")
     ]
 
     @Published var promptText: String = ""

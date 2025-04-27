@@ -260,6 +260,75 @@ final class ChatPane: ObservableObject, Identifiable {
                 return 'OK_AISTUDIO';
             })();
             """
+        case .grok:
+            javascriptString = """
+            (function() {
+                const promptText = `\(sanitizedPrompt)`;
+                const editorSelector = 'textarea[aria-label="Ask Grok anything"]';
+                const sendButtonSelector = 'button[aria-label="Submit"]';
+
+                console.log("PromptSenderApp (Grok): Starting native setter + InputEvent simulation.");
+
+                const box = document.querySelector(editorSelector);
+                const sendBtn = document.querySelector(sendButtonSelector);
+
+                if (!box) {
+                    console.error(`PromptSenderApp (Grok): Could not find editor: ${editorSelector}`);
+                    return 'NO_EDITOR_GROK';
+                }
+                if (!sendBtn) {
+                    // Log this but continue, as the button might appear later
+                    console.warn(`PromptSenderApp (Grok): Could not find send button initially: ${sendButtonSelector}`);
+                }
+                console.log("PromptSenderApp (Grok): Found editor.");
+
+                /* 1. put focus on the box */
+                box.focus();
+                console.log("PromptSenderApp (Grok): Focused editor.");
+
+                /* 2. set the value through the native prototype's setter */
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                if (!nativeSetter) {
+                    console.error("PromptSenderApp (Grok): Could not get native value setter.");
+                    return 'NO_NATIVE_SETTER_GROK';
+                }
+                nativeSetter.call(box, promptText);
+                console.log("PromptSenderApp (Grok): Called native value setter.");
+
+                /* 3. dispatch a real looking InputEvent */
+                const ev = new InputEvent('input', {
+                    bubbles: true,
+                    cancelable: false, // As per analysis
+                    inputType: 'insertFromPaste',
+                    data: promptText
+                });
+                box.dispatchEvent(ev);
+                console.log("PromptSenderApp (Grok): Dispatched targeted InputEvent.");
+
+                /* 4. wait one macrotask */
+                setTimeout(() => {
+                    // Re-query button inside timeout as it might have changed state/appeared
+                    const currentSendBtn = document.querySelector(sendButtonSelector);
+                    if (!currentSendBtn) {
+                         console.error(`PromptSenderApp (Grok): Could not find button inside timeout: ${sendButtonSelector}`);
+                         return; // Implicitly returns JS_NON_STRING_GROK
+                    }
+                    console.log("PromptSenderApp (Grok): Found button inside timeout.");
+
+                    if (currentSendBtn.disabled || currentSendBtn.hasAttribute('disabled')) {
+                        console.warn("PromptSenderApp (Grok): Submit button STILL disabled after native set + InputEvent. State update likely failed.");
+                        return; // Implicitly returns JS_NON_STRING_GROK or BUTTON_DISABLED_GROK
+                    }
+
+                    console.log("PromptSenderApp (Grok): Button appears enabled. Clicking.");
+                    currentSendBtn.click();
+                    console.log("PromptSenderApp (Grok): Clicked button.");
+
+                }, 0); // Use timeout 0 for the next macrotask
+
+                return 'OK_GROK_NATIVE_INPUT'; // New status code
+            })();
+            """
         }
         // +++ END ADDED CODE +++
 
