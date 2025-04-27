@@ -1,52 +1,72 @@
-# Project Context Dump (End of Session - Groq Cloud Removed)
+# Project Context Summary: Prompt-You (UI Phase - Part 1)
 
-## Project Vision
+## Vision
 
-To create a macOS SwiftUI application that acts as a central hub for interacting with multiple AI chat services (like You.com, ChatGPT, Claude, AI Studio, Grok, Perplexity, Gemini, Mistral). The core functionality involves:
-*   Displaying each AI service in its own `WKWebView` pane.
-*   Providing a single native text input field.
-*   Broadcasting the text from the native input field to selected `WKWebView` panes simultaneously.
-*   Injecting JavaScript into each `WKWebView` to programmatically insert the prompt text into the respective service's input field and trigger the send action.
+A macOS SwiftUI application designed to broadcast user prompts simultaneously to multiple AI chat service web interfaces (`ChatGPT`, `Claude`, `Gemini`, `You.com`, `Perplexity`, `AI Studio`, `Grok`, `Mistral`) hosted within individual `WKWebView` panes.
 
-## Current Functional State (Post Groq Cloud Removal)
+## Functional State at Start of UI Phase
 
-*   The application successfully loads You.com, ChatGPT, Claude.ai, aistudio.google.com, grok.com, perplexity.ai, gemini.google.com/app, and **chat.mistral.ai** into separate panes.
-*   Groq Cloud provider (`console.groq.com/playground`) has been **removed** due to persistent integration difficulties.
-*   A central native input field exists.
-*   A broadcasting mechanism (`MainModel.broadcast`) sends the prompt text to selected panes.
-*   JavaScript injection logic exists and is functional for:
-    *   **You.com:** Targets `<textarea>`, native setter, `input` event, click button.
-    *   **ChatGPT:** Targets `contenteditable` div, `.textContent`, `input` event, `setTimeout`, click button.
-    *   **Claude:** Targets `contenteditable` div (ProseMirror), focus, `.textContent`, `input` event, `setTimeout`, click button.
-    *   **AI Studio:** Targets `<textarea>` (dynamic `aria-label`), `.value`, `input` event, `setTimeout`, click button.
-    *   **Grok:** Targets `<textarea>` (React), focus, **native setter**, specific **`InputEvent(inputType:'insertFromPaste')`**, `setTimeout(0)`, click button.
-    *   **Perplexity:** Targets `<textarea>` (React), **native setter**, standard `input` event, `setTimeout(60)` (due to button replacement), query for *enabled* button, click (fallback: Enter key).
-    *   **Gemini:** Targets `contenteditable` div (Quill/Angular), focus, `.textContent`, standard `InputEvent`, `setTimeout(50)`, query button, check `aria-disabled`, click.
-    *   **Mistral:** Targets `<textarea>` (React, **Shadow DOM**), uses **helper functions** (`waitFor`, `getVisibleTextarea`, `setReactValue`) to find textarea (including shadow roots), focus, **native setter**, dispatch `input`+`change` events, wait for enabled button using `waitFor` on root node (`document` or shadow root), click.
-*   The `AIProvider` enum and `MainModel` manage the remaining providers and their URLs.
-*   Basic error handling (returning codes like `JS_ERROR_PROVIDER`, `NO_EDITOR_PROVIDER`, provider-specific codes) is implemented.
+*   All target providers successfully integrated, loading in separate `WKWebView` panes.
+*   JavaScript injection implemented for each provider to handle diverse input methods (textarea, contenteditable divs, various frameworks like React, Angular, Quill, ProseMirror). Techniques included native setters, diverse event dispatches (`input`, `InputEvent`, `KeyboardEvent`), `setTimeout` delays, attribute checks (`disabled`, `aria-disabled`), and Shadow DOM traversal (Mistral).
+*   Core broadcasting mechanism (`MainModel.broadcast`) functional, sending prompts to selected panes sequentially with delays.
+*   Basic grid layout displaying selected panes.
 
-## Significant Challenges Overcome (Session Summary)
+## UI/UX Improvement Phase (Progress)
 
-1.  **Framework Interactions:** Successfully integrated Perplexity, Gemini, and Mistral, each requiring specific handling for React/Angular/Quill/ProseMirror (native setters, event types, timing, `disabled`/`aria-disabled` checks).
-2.  **DOM Node Replacement (Perplexity):** Addressed issue where React replaced the send button after input by using `setTimeout(60)` before querying for the new, enabled button.
-3.  **Shadow DOM (Mistral):** Overcame challenge where the textarea was hidden in shadow DOM by implementing a recursive `getVisibleTextarea` helper and using `waitFor`.
-4.  **WKWebView Return Types (Groq Cloud Debugging):** Encountered issues (potentially `WKError 5`) related to complex return types from JS. Refined logic to ensure only simple strings were returned via promise resolution (though Groq Cloud was ultimately removed).
-5.  **Responsive UI Issues (Groq Cloud Debugging):** Identified that UI changes based on viewport width (hiding textarea, showing dialog button on mobile) were likely causing selector failures.
+*   **Dynamic Panes:** Refactored `MainModel` to handle a dynamic `panes: [ChatPane]` array instead of a fixed list. Added `addPane` and `removePane` functions.
+*   **Horizontal Scrolling (Initial Attempt):** Replaced the grid with a SwiftUI `ScrollView(.horizontal)` containing an `HStack` of panes, each with a fixed width (`paneWidth`).
+*   **Scrolling Issue Diagnosis:** Identified that the inner `WKWebView`'s default scroll handling intercepted horizontal scroll gestures, preventing the outer SwiftUI `ScrollView` from working.
+*   **Scrolling Fix Attempt 1 (Subclassing `WKWebView`):** Created `PaneWebView` subclass overriding `scrollWheel(with:)` to pass horizontal events up the responder chain (`nextResponder?.scrollWheel(with: event)`). This enabled scrolling but introduced visual jitter/stutter due to conflicting scroll actions. Attempts to disable internal scrolling via `scrollView` properties failed due to macOS SDK limitations.
+*   **Scrolling Fix Attempt 2 (Custom `NSScrollView`):** Replaced SwiftUI `ScrollView` with a custom `NSViewRepresentable` (`HostingScrollView`) wrapping a native `NSScrollView`. The SwiftUI `HStack` of panes is hosted within this `NSScrollView`'s `documentView`. This successfully eliminated nested scroll view conflicts and achieved smooth horizontal scrolling.
+*   **Window Style:** Hid the standard macOS window title bar (`windowStyle(.hiddenTitleBar)`) for a cleaner look.
+*   **Bottom Bar Redesign:**
+    *   Moved the "Add Pane" `Menu` from a top bar to the bottom control bar, styled as a simple "+" button (`.menuStyle(.borderlessButton)`).
+    *   Used `Spacer`s to position the "+" button left and center the input area + send button.
+    *   Replaced single-line `TextField` with a multi-line `TextEditor` wrapped in a `ZStack` to handle placeholder text.
+    *   Constrained `TextEditor` height (`.frame(minHeight:, maxHeight:)`) to allow dynamic expansion up to ~7 lines.
+    *   Styled the `TextEditor` container to resemble a standard input field.
+*   **Keyboard Shortcuts:**
+    *   Added Command+Enter shortcut for sending prompts (via a hidden button).
+    *   Added Command+Number (1-9) shortcuts to directly focus specific panes.
+    *   Added Command+Shift+[` and `]` shortcuts to cycle focus between panes.
+*   **Focus Management:**
+    *   Implemented `focusedPaneIndex` state in `MainModel`.
+    *   Added `cycleFocus` and `setFocus` methods to `MainModel`.
+    *   Used `.onChange(of: model.focusedPaneIndex)` in `ContentView` to trigger `window.makeFirstResponder()` on the corresponding `WKWebView`'s window.
+    *   Implemented **Auto-Scrolling:** Modified `HostingScrollView` to observe `focusedPaneIndex` and use `NSScrollView.contentView.scroll(to:)` within an `NSAnimationContext` to automatically bring the focused pane into view.
+*   **Notifications:** Added transient, animated overlay notifications at the bottom for:
+    *   Focus changes ("Focused: \[Pane Title]").
+    *   New panes added ("Added: \[Pane Title] (Cmd+N)").
 
-## Learnings & Assumptions
+## Current Functional State
 
-*   **Framework Diversity:** No single JS injection method works for all sites. Deep inspection and tailored approaches are necessary.
-*   **Native Setters:** Crucial for React/framework-controlled inputs.
-*   **Shadow DOM:** Requires specific traversal techniques.
-*   **Timing & DOM State:** Asynchronous waits (`waitFor`, `setTimeout`, etc.) are vital to handle framework updates before interacting with elements.
-*   **Responsive Design:** Automation must account for UI variations at different viewport sizes if the `WKWebView` might render narrowly.
-*   **WKWebView JS Bridge:** Care must be taken with JS return types; stick to primitives or simple objects when returning results from `evaluateJavaScript`.
-*   **Assumption:** Current selectors/logic for remaining providers are functional but vulnerable to website updates.
+*   Application launches with a hidden title bar.
+*   Panes can be added dynamically via the "+" menu in the bottom bar.
+*   Panes are displayed in a horizontally scrolling view powered by a custom `NSScrollView`. Scrolling is smooth.
+*   Panes can be closed via an "x" button overlay.
+*   The bottom bar features a "+" button (left), a centered multi-line `TextEditor` (expands up to 7 lines), and a Send button (right of text editor).
+*   Prompts can be sent via the Send button or Command+Enter.
+*   Focus can be shifted between panes using Command+Number (1-9) or Command+Shift+Brackets.
+*   The view automatically scrolls horizontally to bring the newly focused pane into view.
+*   Notifications briefly appear confirming focus changes and new pane additions (including their Command+Number shortcut).
 
-## Potential Next Steps (Not Yet Implemented)
+## Current Challenges / Known Issues
 
-*   Refining error handling (more specific codes, UI feedback).
-*   UI/UX improvements (e.g., loading indicators, result parsing).
-*   Persistence (e.g., saving window size/position).
-*   Adding other providers (if desired).
+*   **Trailing Scroll Space:** A small amount of extra scrollable space exists after the rightmost pane, preventing it from sitting perfectly flush with the window edge when scrolled fully right. (Attempts to fix by removing the last divider and setting `contentInsets` to zero were unsuccessful).
+
+## Key Learnings
+
+*   Deep dive into SwiftUI and AppKit interoperability (`NSViewRepresentable`, `NSHostingView`, `NSScrollView`).
+*   Handling scroll event propagation and conflicts between nested scrollable views (`WKWebView` internals vs. SwiftUI `ScrollView` vs. `NSScrollView`).
+*   Implementing custom focus management across SwiftUI and AppKit views (`makeFirstResponder`, `onChange`, state management).
+*   Creating dynamic multi-line input fields using `TextEditor` and placeholder overlays.
+*   Implementing various keyboard shortcuts (`.keyboardShortcut`).
+*   Creating non-intrusive UI notifications using overlays, state, and animations.
+*   Debugging layout issues involving `Spacer`s, `frame` modifiers, safe areas (`.ignoresSafeArea`), and `NSScrollView` behavior.
+
+## Next Steps (UI)
+
+*   Resolve the trailing space issue in the horizontal scroll view.
+*   Implement pane profiles (saving/loading sets of panes).
+*   Implement provider restrictions (allowing multiple instances only for specific providers like You.com, Perplexity, AI Studio).
+*   Further UI polish (styling, button appearances, etc.).

@@ -45,17 +45,60 @@ final class MainModel: ObservableObject {
 
     @Published var promptText: String = ""
     @Published var isBroadcasting: Bool = false
+    @Published var focusedPaneIndex: Int? = nil // Index of the pane that should have focus
 
     func addPane(provider: AIProvider) {
         let newPane = ChatPane(provider: provider, title: provider.rawValue)
         newPane.isSelected = true
         panes.append(newPane)
         print("Added pane for: \(provider.rawValue). Total panes: \(panes.count)")
+        // If this is the first pane added, focus it
+        if focusedPaneIndex == nil && panes.count == 1 {
+            focusedPaneIndex = 0
+            print("Setting initial focus index to 0")
+        }
     }
 
     func removePane(id: UUID) {
+        guard let removedIndex = panes.firstIndex(where: { $0.id == id }) else { return }
+
         panes.removeAll { $0.id == id }
         print("Removed pane with ID: \(id). Total panes: \(panes.count)")
+
+        // Adjust focus if the focused pane was removed or a later pane was removed
+        if let currentFocus = focusedPaneIndex {
+            if panes.isEmpty {
+                focusedPaneIndex = nil // No panes left
+            } else if removedIndex == currentFocus {
+                // Focus the previous one (wrapping around if needed)
+                focusedPaneIndex = (currentFocus - 1 + panes.count) % panes.count
+            } else if removedIndex < currentFocus {
+                // A pane before the focused one was removed, decrement focus index
+                focusedPaneIndex = currentFocus - 1
+            }
+            // If removedIndex > currentFocus, focus index remains the same
+             print("Adjusted focus index to: \(focusedPaneIndex ?? -1)")
+        }
+    }
+
+    // Function to cycle focus between panes
+    func cycleFocus(forward: Bool) {
+        guard panes.count > 1, let currentIndex = focusedPaneIndex else { return } // Need at least 2 panes to cycle
+
+        let offset = forward ? 1 : -1
+        let nextIndex = (currentIndex + offset + panes.count) % panes.count
+        focusedPaneIndex = nextIndex
+        print("Cycling focus. New index: \(focusedPaneIndex ?? -1)")
+    }
+
+    // Function to directly set focus to a specific pane index
+    func setFocus(to index: Int) {
+        guard index >= 0 && index < panes.count else {
+            print("SetFocus Error: Index \(index) out of bounds (0..\(panes.count-1))")
+            return
+        }
+        focusedPaneIndex = index
+        print("Setting focus directly to index: \(index)")
     }
 
     /// Sends the text from the app's input field to all selected panes.

@@ -6,6 +6,7 @@ struct PromptSenderApp: App {
         WindowGroup {
             ContentView()
         }
+        .windowStyle(.hiddenTitleBar) // Hides the title bar, content goes to the top
         /* Enable the Web Inspector at runtime with ⌥⌘I */
         .commands {
             CommandGroup(after: .windowArrangement) {
