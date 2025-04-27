@@ -403,8 +403,63 @@ final class ChatPane: ObservableObject, Identifiable {
                  return 'OK_PERPLEXITY_ATTEMPT_INITIATED';
             })();
             """
+        case .gemini: // +++ MODIFIED
+             // --- Logic for Gemini (Quill/Angular) ---
+             javascriptString = """
+             (function() {
+                const promptText = `\(sanitizedPrompt)`;
+                const editorSelector = 'div[contenteditable="true"][aria-label="Enter a prompt here"]';
+                const sendButtonSelector = 'button.send-button[aria-label="Send message"]'; // Using slightly more specific selector
+
+                console.log("PromptSenderApp (Gemini): Starting interaction.");
+
+                const editor = document.querySelector(editorSelector);
+                if (!editor) {
+                    console.error(`PromptSenderApp (Gemini): Could not find editor: ${editorSelector}`);
+                    return 'NO_EDITOR_GEMINI';
+                }
+                console.log("PromptSenderApp (Gemini): Found editor.");
+
+                // 1. Focus the editor
+                editor.focus();
+                console.log("PromptSenderApp (Gemini): Focused editor.");
+
+                // 2. Set Content (using textContent for Quill)
+                editor.textContent = promptText;
+                console.log(`PromptSenderApp (Gemini): Set textContent to: ${promptText}`);
+
+                // 3. Dispatch Input Event (Quill/Angular listens for this)
+                // Using InputEvent as suggested
+                const inputEvent = new InputEvent('input', { bubbles: true, cancelable: true });
+                editor.dispatchEvent(inputEvent);
+                console.log("PromptSenderApp (Gemini): Dispatched input event.");
+
+                // 4. Wait for Angular change detection, then click button
+                setTimeout(() => {
+                    const sendButton = document.querySelector(sendButtonSelector);
+                    if (!sendButton) {
+                        console.error(`PromptSenderApp (Gemini): Could not find button inside timeout: ${sendButtonSelector}`);
+                        return; // Implicitly returns JS_NON_STRING_GEMINI
+                    }
+                    console.log("PromptSenderApp (Gemini): Found button inside timeout.");
+
+                    // Check aria-disabled state
+                    const isDisabled = sendButton.getAttribute('aria-disabled') === 'true';
+                    if (isDisabled) {
+                        console.warn("PromptSenderApp (Gemini): Send button is aria-disabled='true' after dispatching input. Framework interaction likely incomplete or needs more time.");
+                        return; // Implicitly returns JS_NON_STRING_GEMINI or BUTTON_DISABLED_GEMINI
+                    }
+
+                    console.log("PromptSenderApp (Gemini): Button appears enabled (aria-disabled!=true). Clicking.");
+                    sendButton.click();
+                    console.log("PromptSenderApp (Gemini): Clicked button.");
+                }, 50); // Use suggested 50ms delay
+
+                return 'OK_GEMINI_ATTEMPTED'; // Indicate success attempt
+             })();
+             """ // +++ MODIFIED
         }
-        // +++ END ADDED CODE +++
+        // +++ END ADDED CODE ---
 
         // 3. Call evaluateJavaScript with the chosen string
         return await withCheckedContinuation { continuation in
