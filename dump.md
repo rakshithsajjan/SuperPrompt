@@ -145,3 +145,55 @@ To create a macOS SwiftUI application that acts as a central hub for interacting
 *   Refining error handling (more specific codes, UI feedback).
 *   UI/UX improvements.
 *   Persistence.
+
+# Project Context Dump (End of Mistral Integration Session)
+
+## Project Vision
+
+To create a macOS SwiftUI application that acts as a central hub for interacting with multiple AI chat services (like You.com, ChatGPT, Claude, AI Studio, Grok, Perplexity, Gemini, Mistral). The core functionality involves:
+*   Displaying each AI service in its own `WKWebView` pane.
+*   Providing a single native text input field.
+*   Broadcasting the text from the native input field to selected `WKWebView` panes simultaneously.
+*   Injecting JavaScript into each `WKWebView` to programmatically insert the prompt text into the respective service's input field and trigger the send action.
+
+## Current Functional State
+
+*   The application successfully loads You.com, ChatGPT, Claude.ai, aistudio.google.com, grok.com, perplexity.ai, gemini.google.com/app, and **chat.mistral.ai** into separate panes.
+*   A central native input field exists.
+*   A broadcasting mechanism (`MainModel.broadcast`) sends the prompt text to selected panes.
+*   JavaScript injection logic exists and is functional for:
+    *   **You.com:** Targets `<textarea>`, native setter, `input` event, click button.
+    *   **ChatGPT:** Targets `contenteditable` div, `.textContent`, `input` event, `setTimeout`, click button.
+    *   **Claude:** Targets `contenteditable` div (ProseMirror), focus, `.textContent`, `input` event, `setTimeout`, click button.
+    *   **AI Studio:** Targets `<textarea>` (dynamic `aria-label`), `.value`, `input` event, `setTimeout`, click button.
+    *   **Grok:** Targets `<textarea>` (React), focus, **native setter**, specific **`InputEvent(inputType:'insertFromPaste')`**, `setTimeout(0)`, click button.
+    *   **Perplexity:** Targets `<textarea>` (React), **native setter**, standard `input` event, `setTimeout(60)` (due to button replacement), query for *enabled* button, click (fallback: Enter key).
+    *   **Gemini:** Targets `contenteditable` div (Quill/Angular), focus, `.textContent`, standard `InputEvent`, `setTimeout(50)`, query button, check `aria-disabled`, click.
+    *   **Mistral:** Targets `<textarea>` (React, **Shadow DOM**), uses **helper functions** (`waitFor`, `getVisibleTextarea`, `setReactValue`) to find textarea (including shadow roots), focus, **native setter**, dispatch `input`+`change` events, wait for enabled button using `waitFor` on root node (`document` or shadow root), click.
+*   The `AIProvider` enum and `MainModel` manage the different providers and their URLs.
+*   Basic error handling (returning codes like `JS_ERROR_PROVIDER`, `NO_EDITOR_PROVIDER`, provider-specific codes) is implemented.
+
+## Significant Challenges Overcome
+
+1.  **Rich Text Editor Interactions (ChatGPT/Claude/Gemini):** Required specific handling for `contenteditable` divs (ProseMirror, Quill), event dispatching (`input`, `InputEvent`), and delays (`setTimeout`). Gemini required checking `aria-disabled`.
+2.  **Dynamic Selectors (AI Studio):** Handled changing `aria-label` using combined CSS selectors.
+3.  **Complex Framework Interaction (Grok/React):** Required native setter + specific `InputEvent` to update internal state.
+4.  **DOM Node Replacement (Perplexity/React):** Required `setTimeout(60)` before querying for the *new, enabled* button node after `input` event.
+5.  **Shadow DOM (Mistral):** The textarea was hidden inside a shadow root, requiring a custom `getVisibleTextarea` function to traverse shadow boundaries. Used `waitFor` utility to robustly wait for elements.
+
+## Learnings & Assumptions
+
+*   **Framework Nuances:** Deep framework knowledge (React, Angular, Quill, ProseMirror) is crucial. Different frameworks require different combinations of native setters, event types, attribute checks, timing, and DOM traversal (including shadow DOM).
+*   **Native Setters:** Essential for most React/framework-controlled inputs.
+*   **Shadow DOM:** Standard `querySelector` doesn't pierce shadow boundaries. Requires recursive searching through `element.shadowRoot` or specific libraries/techniques.
+*   **Element Visibility & Timing:** Elements might exist in the DOM but not be visible (`offsetParent` check) or enabled. Asynchronous waits (`waitFor`, `setTimeout`, `requestAnimationFrame`, `MutationObserver`) are often needed before interaction.
+*   **Attribute Variations:** Use `disabled` for standard elements, `aria-disabled` for some frameworks.
+*   **Iterative Refinement:** Testing and adjusting timing/methods based on specific site behavior is essential.
+*   **Assumption:** Current selectors/logic are functional but highly vulnerable to website updates, especially regarding shadow DOM structure and framework internals.
+
+## Potential Next Steps (Not Yet Implemented)
+
+*   Refining error handling (more specific codes, UI feedback).
+*   UI/UX improvements (e.g., loading indicators, result parsing).
+*   Persistence (e.g., saving window size/position).
+*   Adding more providers.

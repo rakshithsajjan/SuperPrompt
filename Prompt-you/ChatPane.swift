@@ -403,7 +403,7 @@ final class ChatPane: ObservableObject, Identifiable {
                  return 'OK_PERPLEXITY_ATTEMPT_INITIATED';
             })();
             """
-        case .gemini: // +++ MODIFIED
+        case .gemini:
              // --- Logic for Gemini (Quill/Angular) ---
              javascriptString = """
              (function() {
@@ -457,7 +457,112 @@ final class ChatPane: ObservableObject, Identifiable {
 
                 return 'OK_GEMINI_ATTEMPTED'; // Indicate success attempt
              })();
-             """ // +++ MODIFIED
+             """
+        case .mistral:
+            // --- Logic for Mistral (Le Chat - Shadow DOM Aware) ---
+            javascriptString = """
+            (async function() { // Use async IIFE
+                const promptText = `\(sanitizedPrompt)`;
+
+                // --- Helper Functions ---
+                function waitFor(fn, timeout = 2000, interval = 50) {
+                    return new Promise(res => {
+                        const t0 = performance.now();
+                        const id = setInterval(() => {
+                            const r = typeof fn === 'function' ? fn() : fn;
+                            if (r) {
+                                clearInterval(id);
+                                res(r);
+                            } else if (performance.now() - t0 > timeout) {
+                                clearInterval(id);
+                                res(null); // Resolve with null on timeout
+                            }
+                        }, interval);
+                    });
+                }
+
+                function getVisibleTextarea(doc = document) {
+                    let areas = [...doc.querySelectorAll('textarea[name="message.text"]')];
+                    doc.querySelectorAll('*').forEach(el => {
+                        if (el.shadowRoot) {
+                            try {
+                                areas = areas.concat(
+                                    [...el.shadowRoot.querySelectorAll('textarea[name="message.text"]')]
+                                );
+                            } catch (e) {
+                                 console.warn("Error accessing shadowRoot for", el, e);
+                            }
+                        }
+                    });
+                    // Return the one that's actually on screen (rendered and visible)
+                    return areas.find(t => t.offsetParent);
+                }
+
+                function setReactValue(el, value) {
+                    // Use window.HTMLTextAreaElement for safety
+                    const proto = window.HTMLTextAreaElement.prototype;
+                    const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                    if (setter) {
+                         setter.call(el, value);
+                    } else {
+                        console.warn("Could not get native value setter for", el);
+                        // Fallback? Or rely on error handling below?
+                        el.value = value; // Less reliable fallback
+                    }
+                }
+
+                async function fillMistral(prompt) {
+                    console.log("PromptSenderApp (Mistral): Waiting for textarea...");
+                    const ta = await waitFor(getVisibleTextarea, 3000);
+                    if (!ta) {
+                        console.error('PromptSenderApp (Mistral): Textarea not found after wait.');
+                        throw new Error('Mistral textarea not found');
+                    }
+                    console.log("PromptSenderApp (Mistral): Textarea found. Filling...");
+                    ta.focus();
+                    setReactValue(ta, prompt);
+                    ta.dispatchEvent(new Event('input',  { bubbles: true }));
+                    ta.dispatchEvent(new Event('change', { bubbles: true }));
+                    console.log("PromptSenderApp (Mistral): Textarea filled and events dispatched.");
+                }
+
+                async function sendMistral() {
+                    const ta = getVisibleTextarea(); // Assume it exists if fill succeeded
+                    if (!ta) throw new Error("Textarea vanished before send?"); // Should not happen
+                    const root = ta.getRootNode(); // Find root (document or shadowRoot)
+
+                    const btnSel = 'button[type="submit"][aria-label="Send question"]:not([disabled])';
+                    console.log("PromptSenderApp (Mistral): Waiting for enabled send button...");
+                    const btn = await waitFor(() => root.querySelector(btnSel), 1500); // Shorter timeout for button
+                    if (!btn) {
+                         console.error('PromptSenderApp (Mistral): Send button still disabled after wait.');
+                         throw new Error('Send button still disabled');
+                    }
+                    console.log("PromptSenderApp (Mistral): Enabled button found. Clicking...");
+                    btn.click();
+                    console.log("PromptSenderApp (Mistral): Button clicked.");
+                }
+
+                // --- Main Execution Logic ---
+                try {
+                    console.log("PromptSenderApp (Mistral): Starting fill/send sequence...");
+                    await fillMistral(promptText);
+                    await sendMistral();
+                    console.log("PromptSenderApp (Mistral): Fill/send sequence completed successfully.");
+                    return 'OK_MISTRAL_SHADOW_ATTEMPTED'; // New success code
+                } catch (e) {
+                    console.error("PromptSenderApp (Mistral): Error during fill/send:", e);
+                    // Return a specific error based on the message if possible
+                    if (e.message.includes('textarea not found')) {
+                        return 'FAIL_MISTRAL_NO_TEXTAREA';
+                    } else if (e.message.includes('still disabled')) {
+                         return 'FAIL_MISTRAL_BUTTON_DISABLED';
+                    } else {
+                         return 'FAIL_MISTRAL_UNKNOWN_ERROR';
+                    }
+                }
+            })();
+            """
         }
         // +++ END ADDED CODE ---
 

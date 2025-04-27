@@ -10,6 +10,7 @@ enum AIProvider: String, CaseIterable {
     case grok = "Grok"
     case perplexity = "Perplexity"
     case gemini = "Gemini"
+    case mistral = "Mistral"
 
     var defaultUrl: URL? {
         switch self {
@@ -27,6 +28,8 @@ enum AIProvider: String, CaseIterable {
             return URL(string: "https://www.perplexity.ai/")!
         case .gemini:
             return URL(string: "https://gemini.google.com/app")!
+        case .mistral:
+            return URL(string: "https://chat.mistral.ai/")!
         }
     }
 
@@ -43,7 +46,8 @@ final class MainModel: ObservableObject {
         ChatPane(provider: .aistudio, title: "AI Studio"),
         ChatPane(provider: .grok, title: "Grok"),
         ChatPane(provider: .perplexity, title: "Perplexity"),
-        ChatPane(provider: .gemini, title: "Gemini")
+        ChatPane(provider: .gemini, title: "Gemini"),
+        ChatPane(provider: .mistral, title: "Mistral")
     ]
 
     @Published var promptText: String = ""
