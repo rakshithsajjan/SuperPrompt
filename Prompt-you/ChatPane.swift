@@ -12,7 +12,8 @@ final class ChatPane: ObservableObject, Identifiable {
         didSet { webView.isHidden = !isSelected }
     }
 
-    let webView: WKWebView = WKWebView(
+    // Use the custom subclass that prevents horizontal scroll hijacking
+    let webView: PaneWebView = PaneWebView(
         frame: .zero,
         configuration: SharedWebKit.configuration()
     )

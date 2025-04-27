@@ -3,77 +3,116 @@ import WebKit
 
 struct ContentView: View {
     @StateObject private var model = MainModel()
+    // Default width for panes
+    private let paneWidth: CGFloat = 450
 
     var body: some View {
-        // Overall container
         VStack(spacing: 0) {
-
-            /*───── Browser grid (now occupies most space) ─────*/
-            GeometryReader { geo in
-                let visiblePanes = model.panes.filter { $0.isSelected }
-                let count = CGFloat(visiblePanes.count)
-                let width = count > 0 ? geo.size.width / count : geo.size.width
-
-                HStack(spacing: 0) {
-                    ForEach(model.panes) { pane in
-                        if pane.isSelected {
-                             WebViewWrapper(pane.webView)
-                                .frame(width: width)
+            // --- Top Bar for Adding Panes ---
+            HStack {
+                Spacer() // Push menu to the right
+                Menu {
+                    // Iterate over all known AIProvider types
+                    ForEach(AIProvider.allCases) { provider in
+                        Button("Add \(provider.rawValue)") {
+                            model.addPane(provider: provider)
                         }
                     }
+                } label: {
+                    Label("Add Pane", systemImage: "plus.circle.fill")
                 }
+                .padding(.horizontal)
+                .padding(.vertical, 5)
             }
-            // Allow GeometryReader to expand
+            .background(.bar) // Use a standard bar background
+
+            Divider()
+
+            /*───── Horizontally Scrolling Browser Panes ─────*/
+            ScrollView(.horizontal, showsIndicators: true) {
+                HStack(spacing: 0) {
+                    // Iterate over the DYNAMIC panes array
+                    ForEach(model.panes) { pane in
+                        // --- Pane View with Close Button ---
+                        ZStack(alignment: .topTrailing) {
+                            WebViewWrapper(pane.webView)
+                                .frame(width: paneWidth)
+                                .id(pane.id) // Ensure view updates on pane removal
+
+                            // Close Button Overlay
+                            Button {
+                                model.removePane(id: pane.id)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .resizable()
+                                    .frame(width: 18, height: 18)
+                                    .foregroundColor(.gray.opacity(0.7))
+                                    .background(Circle().fill(.white.opacity(0.6)))
+                            }
+                            .buttonStyle(.plain) // Removes default button chrome
+                            .padding(5)
+                        }
+                        Divider() // Vertical divider between panes
+                    }
+                }
+                // Ensure HStack takes its full required width
+                .fixedSize(horizontal: true, vertical: false)
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider() // Divider above the bottom controls
 
-            /*───── Bottom Control Bar ─────*/
-            VStack(spacing: 8) {
-                // Checkboxes (Top row within the bottom bar)
-                HStack {
-                    ForEach($model.panes) { $pane in
-                        Toggle(pane.title, isOn: $pane.isSelected)
-                            .toggleStyle(.checkbox)
-                            .disabled(model.isBroadcasting)
-                    }
-                    Spacer() // Pushes checkboxes left
-                }
-
-                // Input + Send Button (Bottom row within the bottom bar)
-                HStack(spacing: 8) {
-                    TextField("Enter prompt here...", text: $model.promptText)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(model.isBroadcasting)
-                        .onSubmit {
-                            if !model.isBroadcasting {
-                                model.broadcast()
-                            }
+            /*───── Sleeker Bottom Control Bar ─────*/
+            HStack(spacing: 8) {
+                TextField("Enter prompt here...", text: $model.promptText)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(model.isBroadcasting)
+                    .onSubmit { // Keep onSubmit for convenience
+                        if !model.isBroadcasting && !model.promptText.isEmpty {
+                            model.broadcast()
                         }
-
-                    Button { model.broadcast() } label: {
-                         // Use an SF Symbol for a sleeker look
-                         Image(systemName: "paperplane.fill")
-                             .imageScale(.medium)
-                             .frame(height: 20) // Ensure consistent height
                     }
-                    .buttonStyle(.borderedProminent) // Style the button
-                    .tint(.accentColor) // Use accent color
-                    .disabled(model.isBroadcasting || model.promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button {
+                    model.broadcast()
+                } label: {
+                    // Use an SF Symbol for a sleeker look
+                    Image(systemName: model.isBroadcasting ? "hourglass" : "paperplane.fill") // Show hourglass when busy
+                        .imageScale(.medium)
+                        .frame(height: 20)
+                        .contentTransition(.symbolEffect(.replace)) // Animate icon change
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(.accentColor)
+                .disabled(model.isBroadcasting || model.promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .padding(10) // Add padding around the bottom control area
-            .background(.regularMaterial) // Give it a distinct background
+            .padding(10)
+            .background(.regularMaterial) // Keep distinct background
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 500, minHeight: 400) // Adjusted min size
+        // Add some default panes on launch for better initial state
+        .onAppear {
+            if model.panes.isEmpty {
+                model.addPane(provider: .chatGPT)
+                model.addPane(provider: .claude)
+            }
+        }
     }
 }
 
 /* SwiftUI wrapper that embeds the existing WKWebView instance. */
 private struct WebViewWrapper: NSViewRepresentable {
-    let wk: WKWebView
-    init(_ w: WKWebView) { self.wk = w }
+    // Accept the subclass type
+    let wk: PaneWebView
+    init(_ w: PaneWebView) { self.wk = w }
 
-    func makeNSView(context: Context) -> WKWebView { wk }
-    func updateNSView(_ nsView: WKWebView, context: Context) { }
+    func makeNSView(context: Context) -> PaneWebView {
+        // Pass the existing instance
+        return wk
+    }
+
+    func updateNSView(_ nsView: PaneWebView, context: Context) {
+        // No need for the previous erroneous code here
+        // The scroll handling is now done within the NoHorizontalScrollWebView subclass
+    }
 }

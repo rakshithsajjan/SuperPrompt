@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Represents the AI service provider for a pane.
-enum AIProvider: String, CaseIterable {
+enum AIProvider: String, CaseIterable, Identifiable {
     case you = "You.com"
     case chatGPT = "ChatGPT"
     // Add claude later
@@ -11,6 +11,8 @@ enum AIProvider: String, CaseIterable {
     case perplexity = "Perplexity"
     case gemini = "Gemini"
     case mistral = "Mistral"
+
+    var id: String { self.rawValue }
 
     var defaultUrl: URL? {
         switch self {
@@ -39,19 +41,22 @@ enum AIProvider: String, CaseIterable {
 @MainActor
 final class MainModel: ObservableObject {
 
-    @Published var panes: [ChatPane] = [
-        ChatPane(provider: .you, title: "You.com"),
-        ChatPane(provider: .chatGPT, title: "ChatGPT"),
-        ChatPane(provider: .claude, title: "Claude"),
-        ChatPane(provider: .aistudio, title: "AI Studio"),
-        ChatPane(provider: .grok, title: "Grok"),
-        ChatPane(provider: .perplexity, title: "Perplexity"),
-        ChatPane(provider: .gemini, title: "Gemini"),
-        ChatPane(provider: .mistral, title: "Mistral")
-    ]
+    @Published var panes: [ChatPane] = []
 
     @Published var promptText: String = ""
     @Published var isBroadcasting: Bool = false
+
+    func addPane(provider: AIProvider) {
+        let newPane = ChatPane(provider: provider, title: provider.rawValue)
+        newPane.isSelected = true
+        panes.append(newPane)
+        print("Added pane for: \(provider.rawValue). Total panes: \(panes.count)")
+    }
+
+    func removePane(id: UUID) {
+        panes.removeAll { $0.id == id }
+        print("Removed pane with ID: \(id). Total panes: \(panes.count)")
+    }
 
     /// Sends the text from the app's input field to all selected panes.
     func broadcast() {
@@ -79,16 +84,14 @@ final class MainModel: ObservableObject {
                  print("Broadcast: <<< Setting isBroadcasting = false (deferred) <<<")
             }
 
-            let selectedPanes = panes.filter { $0.isSelected }
-            guard !selectedPanes.isEmpty else {
-                 print("Broadcast: No panes selected.")
+            guard !panes.isEmpty else {
+                 print("Broadcast: No panes open.")
                  return // Defer will still run
             }
-
-            print("Broadcast: Sending to \(selectedPanes.count) selected panes.")
+            print("Broadcast: Sending to \(panes.count) open panes.")
 
             var allSendsAttempted = true // Flag to track if all sends were initiated
-            for (index, pane) in selectedPanes.enumerated() {
+            for (index, pane) in panes.enumerated() {
                 if index > 0 {
                     try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
                 }
@@ -96,7 +99,7 @@ final class MainModel: ObservableObject {
                 let result = await pane.sendCurrentPrompt(promptText: textToSend)
                 print("Result for \(pane.title): \(result)")
                 // Check if the send attempt failed critically (e.g., JS error, couldn't find editor)
-                if result == "JS_ERROR" || result == "NO_EDITOR" {
+                if result.hasPrefix("JS_ERROR_") || result.hasPrefix("NO_EDITOR_") || result.hasPrefix("FAIL_") {
                     allSendsAttempted = false
                     // Decide if you want to stop the broadcast early on critical error
                     // print("Broadcast: Critical error sending to \(pane.title). Stopping broadcast.")
