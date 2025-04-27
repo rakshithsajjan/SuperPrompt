@@ -329,6 +329,80 @@ final class ChatPane: ObservableObject, Identifiable {
                 return 'OK_GROK_NATIVE_INPUT'; // New status code
             })();
             """
+        case .perplexity:
+            // --- Logic for Perplexity (Using setTimeout before query) ---
+            javascriptString = """
+            (function() { // Changed back to regular function
+                const promptText = `\(sanitizedPrompt)`;
+                const editorSelector = 'textarea#ask-input';
+                // Keep both selectors for clarity
+                const sendButtonSelector = 'button[aria-label="Send"][type="submit"]';
+                const enabledSendButtonSelector = 'button[aria-label="Send"][type="submit"]:not([disabled])';
+
+                console.log("PromptSenderApp (Perplexity): Starting native setter + InputEvent + setTimeout(60).");
+
+                const editor = document.querySelector(editorSelector);
+                if (!editor) { // Simpler check is sufficient now
+                    console.error(`PromptSenderApp (Perplexity): Could not find editor: ${editorSelector}`);
+                    return 'NO_EDITOR_PERPLEXITY';
+                }
+                console.log("PromptSenderApp (Perplexity): Found editor.");
+
+                // 1. Set the value through the native prototype's setter
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                if (!nativeSetter) {
+                    console.error("PromptSenderApp (Perplexity): Could not get native value setter.");
+                    return 'NO_NATIVE_SETTER_PERPLEXITY';
+                }
+                nativeSetter.call(editor, promptText);
+                console.log("PromptSenderApp (Perplexity): Called native value setter.");
+
+                // 2. Dispatch a standard 'input' event
+                const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+                editor.dispatchEvent(inputEvent);
+                console.log("PromptSenderApp (Perplexity): Dispatched standard input event.");
+
+                // 3. Wait ~60ms for React to update DOM, then query and click/fallback
+                setTimeout(() => {
+                    // Query for the *enabled* button *inside* the timeout
+                    const sendButton = document.querySelector(enabledSendButtonSelector);
+
+                    if (sendButton) {
+                        // Found the enabled button
+                        console.log("PromptSenderApp (Perplexity): Found enabled button after timeout. Clicking.");
+                        sendButton.click();
+                        console.log("PromptSenderApp (Perplexity): Clicked button.");
+                        // Decide on return code - maybe OK_PERPLEXITY_TIMEOUT_CLICK?
+                        // Using a distinct one helps debugging if it works vs observer
+                        return 'OK_PERPLEXITY_TIMEOUT_CLICK';
+                    } else {
+                        // Enabled button not found, try fallback
+                        console.warn(`PromptSenderApp (Perplexity): Enabled button not found after 60ms (${enabledSendButtonSelector}). Falling back to Enter key.`);
+                        try {
+                            ['keydown','keyup'].forEach(type =>
+                                editor.dispatchEvent(new KeyboardEvent(type, {
+                                    key:'Enter', code:'Enter', keyCode:13, which:13, bubbles:true, cancelable: true
+                                }))
+                            );
+                            console.log("PromptSenderApp (Perplexity): Simulated Enter key events.");
+                             // Use distinct code for fallback success
+                            return 'OK_PERPLEXITY_ENTER_FALLBACK_TIMEOUT';
+                        } catch (keyError) {
+                            console.error("PromptSenderApp (Perplexity): Error simulating Enter key:", keyError);
+                             // Use distinct code for fallback failure
+                            return 'FAIL_PERPLEXITY_BOTH_TIMEOUT';
+                        }
+                    }
+                    // Note: return statements inside setTimeout don't return from the outer function.
+                    // The main function implicitly returns undefined here (JS_NON_STRING...)
+                    // which is acceptable as the action was attempted.
+                }, 60); // 60ms delay
+
+                // The main function returns *before* the timeout completes.
+                // We need a status code indicating the attempt was initiated.
+                 return 'OK_PERPLEXITY_ATTEMPT_INITIATED';
+            })();
+            """
         }
         // +++ END ADDED CODE +++
 
