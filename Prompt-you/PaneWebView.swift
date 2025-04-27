@@ -19,18 +19,14 @@ final class PaneWebView: WKWebView {
     // MARK: event filtering --------------------------------------------------
 
     override func scrollWheel(with event: NSEvent) {
+        // SIMPLIFIED LOGIC: Unconditionally forward all scroll events up the chain.
+        // The NSScrollView in HostingScrollView is configured horizontal-only
+        // and should handle filtering appropriately.
+        print("PaneWebView Forwarding: Type=\(event.type), Phase=\(event.phase), Momentum=\(event.momentumPhase), dX=\(event.scrollingDeltaX), dY=\(event.scrollingDeltaY)")
+        nextResponder?.scrollWheel(with: event)
 
-        /* Track-pad packets are a mix of X and Y deltas.  Decide what the user
-           really wanted:  absolut(X) > absolut(Y)  ⇒ it is a horizontal gesture. */
-        let wantsHorizontal = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
-
-        if wantsHorizontal {
-            // Hand the packet to the next responder (SwiftUI's NSScrollView)
-            nextResponder?.scrollWheel(with: event)
-            return          // ← do not let WKWebView process this event further
-        }
-
-        // Pure vertical/zoom packets stay inside the page
-        super.scrollWheel(with: event)
+        // We **never** call super.scrollWheel(with: event) here, because we want the
+        // HostingScrollView's NSScrollView to handle *all* scrolling related to the panes.
+        // Letting WKWebView handle vertical scrolls was likely interfering.
     }
 } 

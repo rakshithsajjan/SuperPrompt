@@ -41,6 +41,10 @@ enum AIProvider: String, CaseIterable, Identifiable {
 @MainActor
 final class MainModel: ObservableObject {
 
+    // UserDefaults keys
+    private let savedProvidersKey = "savedPaneProviders_v1"
+    private let savedFocusIndexKey = "savedFocusedIndex_v1"
+
     @Published var panes: [ChatPane] = []
 
     @Published var promptText: String = ""
@@ -57,6 +61,7 @@ final class MainModel: ObservableObject {
             focusedPaneIndex = 0
             print("Setting initial focus index to 0")
         }
+        savePanesState() // Save after adding
     }
 
     func removePane(id: UUID) {
@@ -79,6 +84,7 @@ final class MainModel: ObservableObject {
             // If removedIndex > currentFocus, focus index remains the same
              print("Adjusted focus index to: \(focusedPaneIndex ?? -1)")
         }
+        savePanesState() // Save after removing and adjusting focus
     }
 
     // Function to cycle focus between panes
@@ -87,8 +93,11 @@ final class MainModel: ObservableObject {
 
         let offset = forward ? 1 : -1
         let nextIndex = (currentIndex + offset + panes.count) % panes.count
-        focusedPaneIndex = nextIndex
-        print("Cycling focus. New index: \(focusedPaneIndex ?? -1)")
+        // Use setFocus to ensure save is called
+        setFocus(to: nextIndex)
+        // focusedPaneIndex = nextIndex // Directly setting bypasses save
+        // print("Cycling focus. New index: \(focusedPaneIndex ?? -1)")
+        // savePanesState() // Save after cycling focus - Handled by setFocus
     }
 
     // Function to directly set focus to a specific pane index
@@ -97,73 +106,125 @@ final class MainModel: ObservableObject {
             print("SetFocus Error: Index \(index) out of bounds (0..\(panes.count-1))")
             return
         }
-        focusedPaneIndex = index
-        print("Setting focus directly to index: \(index)")
+        // Only save if the index actually changes
+        if focusedPaneIndex != index {
+            focusedPaneIndex = index
+            print("Setting focus directly to index: \(index)")
+            savePanesState() // Save after setting focus
+        }
     }
 
-    /// Sends the text from the app's input field to all selected panes.
+    // MARK: - Persistence (UserDefaults)
+
+    func savePanesState() {
+        let providerRawValues = panes.map { $0.provider.rawValue }
+        UserDefaults.standard.set(providerRawValues, forKey: savedProvidersKey)
+
+        if let index = focusedPaneIndex {
+            UserDefaults.standard.set(index, forKey: savedFocusIndexKey)
+        } else {
+            // If no focus, remove the key
+            UserDefaults.standard.removeObject(forKey: savedFocusIndexKey)
+        }
+        print("Persistence: Saved \(providerRawValues.count) panes and focus index \(focusedPaneIndex ?? -1)")
+    }
+
+    func loadPanesState() {
+        guard let providerRawValues = UserDefaults.standard.array(forKey: savedProvidersKey) as? [String] else {
+            print("Persistence: No saved pane provider data found.")
+            return // No saved state
+        }
+
+        // Only load if panes are currently empty to avoid duplication on hot reload/previews
+        guard panes.isEmpty else {
+            print("Persistence: Panes not empty, skipping load.")
+            return
+        }
+
+        print("Persistence: Loading saved pane state...")
+        var loadedFocusIndex: Int? = UserDefaults.standard.object(forKey: savedFocusIndexKey) as? Int
+
+        for rawValue in providerRawValues {
+            if let provider = AIProvider(rawValue: rawValue) {
+                // Use a temporary non-publishing add method or simply call addPane
+                // directly since we are controlling the loading sequence.
+                // Calling addPane here will trigger focus logic, which is fine.
+                addPane(provider: provider) // This adds the pane
+            } else {
+                print("Persistence Warning: Unknown provider rawValue loaded: \(rawValue)")
+            }
+        }
+
+        // Validate and restore focus AFTER panes are added
+        if let index = loadedFocusIndex, index >= 0 && index < panes.count {
+            focusedPaneIndex = index
+            print("Persistence: Restored focus index to \(index)")
+        } else {
+            // If saved index is invalid or missing, default to first pane if any
+            if !panes.isEmpty && focusedPaneIndex == nil {
+                focusedPaneIndex = 0
+                print("Persistence: Saved focus invalid/missing, defaulting focus to 0.")
+            }
+        }
+        print("Persistence: Finished loading state. Total panes: \(panes.count), Focus: \(focusedPaneIndex ?? -1)")
+    }
+
+    /// Sends the text from the app's input field to all selected panes CONCURRENTLY.
     func broadcast() {
         let textToSend = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !isBroadcasting else {
-            print("Broadcast: Already in progress, ignoring trigger.")
+            print("Broadcast (Parallel): Already in progress, ignoring trigger.")
             return
         }
         guard !textToSend.isEmpty else {
-            print("Broadcast: Prompt text is empty.")
+            print("Broadcast (Parallel): Prompt text is empty.")
+            return
+        }
+        guard !panes.isEmpty else {
+            print("Broadcast (Parallel): No panes open.")
             return
         }
 
         // Set flag immediately on the main actor
         isBroadcasting = true
-        print("Broadcast: >>> Setting isBroadcasting = true <<<")
-        print("Broadcast: Text to send = '\(textToSend)'")
+        print("Broadcast (Parallel): >>> Setting isBroadcasting = true <<<")
+        print("Broadcast (Parallel): Text to send = '\(textToSend)'")
 
-        Task {
-            // Use defer to ensure the flag is reset when the Task scope exits
-            defer {
-                 // Directly assign on the main actor since MainModel is @MainActor
-                 self.isBroadcasting = false
-                 print("Broadcast: <<< Setting isBroadcasting = false (deferred) <<<")
-            }
+        // Launch a detached task to perform the concurrent sends off the main thread initially
+        Task.detached(priority: .userInitiated) {
+            // Fetch the panes array from the MainActor *before* starting the TaskGroup
+            let panesToBroadcast = await self.panes
+            print("Broadcast (Parallel): Sending concurrently to \(panesToBroadcast.count) panes.")
 
-            guard !panes.isEmpty else {
-                 print("Broadcast: No panes open.")
-                 return // Defer will still run
-            }
-            print("Broadcast: Sending to \(panes.count) open panes.")
-
-            var allSendsAttempted = true // Flag to track if all sends were initiated
-            for (index, pane) in panes.enumerated() {
-                if index > 0 {
-                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
+            // Use a TaskGroup to manage concurrent sends
+            await withTaskGroup(of: Void.self) { group in
+                // Iterate over the local copy of the array
+                for pane in panesToBroadcast {
+                    // Add a task to the group for sending the prompt to this pane
+                    group.addTask {
+                        print("Broadcast (Parallel): Starting send to \(pane.title)")
+                        // Call sendCurrentPrompt (which is MainActor isolated)
+                        // The await here happens within the child task.
+                        let result = await pane.sendCurrentPrompt(promptText: textToSend)
+                        print("Broadcast (Parallel): Result for \(pane.title): \(result)")
+                        // TODO: Consider collecting results or handling errors if needed
+                    }
                 }
-                print("Sending '\(textToSend)' to \(pane.title)")
-                let result = await pane.sendCurrentPrompt(promptText: textToSend)
-                print("Result for \(pane.title): \(result)")
-                // Check if the send attempt failed critically (e.g., JS error, couldn't find editor)
-                if result.hasPrefix("JS_ERROR_") || result.hasPrefix("NO_EDITOR_") || result.hasPrefix("FAIL_") {
-                    allSendsAttempted = false
-                    // Decide if you want to stop the broadcast early on critical error
-                    // print("Broadcast: Critical error sending to \(pane.title). Stopping broadcast.")
-                    // break // Uncomment to stop early
-                }
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds post-send delay
+                // The TaskGroup automatically waits for all added tasks to complete here.
+                 print("Broadcast (Parallel): TaskGroup finished.")
             }
-            print("Broadcast: Finished sending loop.")
 
-            // --- ADDED CODE ---
-            // Clear the input field only if all send attempts were initiated
-            // (We don't know if they *succeeded* on the website, but the JS ran)
-            if allSendsAttempted {
-                 self.promptText = ""
-                 print("Broadcast: Cleared prompt text field.")
-            } else {
-                 print("Broadcast: Not clearing prompt text field due to errors during send attempts.")
+            // After all tasks in the group are complete, switch back to the main actor
+            // to update the UI state (reset flag and clear text).
+            await MainActor.run {
+                print("Broadcast (Parallel): <<< Setting isBroadcasting = false >>>")
+                self.isBroadcasting = false
+                // Clear the text field after attempting all sends.
+                // We are not currently checking for errors within the group.
+                self.promptText = ""
+                print("Broadcast (Parallel): Cleared prompt text field.")
             }
-            // --- END ADDED CODE ---
-
-            // Defer runs after this line
         }
     }
 }

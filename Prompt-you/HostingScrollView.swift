@@ -30,10 +30,12 @@ struct HostingScrollView<Content: View>: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = false // We only want horizontal scrolling
         scrollView.hasHorizontalScroller = true
+        scrollView.horizontalScrollElasticity = .none // Remove rubber-band effect
+        scrollView.automaticallyAdjustsContentInsets = false // Prevent system adjustments
+        scrollView.contentInsets = NSEdgeInsets() // Explicitly set zero insets using default initializer
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false // Use SwiftUI background if needed
-        scrollView.contentView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
         // Create the hosting view for the SwiftUI content
         let hostingView = NSHostingView(rootView: content)
@@ -45,17 +47,28 @@ struct HostingScrollView<Content: View>: NSViewRepresentable {
         // Ensure the document view (hosting view) dictates the scrollable size.
         // The hosting view should respect the intrinsic size of its SwiftUI content (our HStack).
         guard let documentView = scrollView.documentView else { return scrollView }
+        let clipView = scrollView.contentView // Get the clip view (NSClipView)
+
         NSLayoutConstraint.activate([
             // Pin document view edges to the content view (the clip view)
-            documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
-            documentView.bottomAnchor.constraint(equalTo: scrollView.contentView.bottomAnchor),
-            documentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-            // DO NOT constrain the trailing edge - let it be determined by content width
-
-            // Make the document view height match the clip view height
-            documentView.heightAnchor.constraint(equalTo: scrollView.contentView.heightAnchor)
-            // Width will be determined by the SwiftUI content's ideal width
+            documentView.topAnchor.constraint(equalTo: clipView.topAnchor),
+            documentView.bottomAnchor.constraint(equalTo: clipView.bottomAnchor),
+            documentView.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
+            documentView.heightAnchor.constraint(equalTo: clipView.heightAnchor)
         ])
+
+        // NEW STRATEGY (Corrected for AppKit):
+        // Constrain the document view width to the scroll view's contentView (clipView) width with LOW priority.
+        // This ensures it fills the visible bounds when content is narrow, but allows intrinsic content size
+        // to expand the width (breaking this constraint) when content is wide, enabling scrolling.
+        let clipViewWidthConstraint = documentView.widthAnchor.constraint(equalTo: clipView.widthAnchor)
+        clipViewWidthConstraint.priority = .defaultLow // Low priority (250)
+        clipViewWidthConstraint.isActive = true
+
+        // Now we have:
+        // - leading/top/bottom/height anchors tying the documentView partially to the clipView.
+        // - A low-priority width constraint tying documentView width to the clipView width.
+        // - Intrinsic content size of the NSHostingView (from the HStack) takes precedence if wider.
 
         return scrollView
     }
@@ -91,8 +104,10 @@ struct HostingScrollView<Content: View>: NSViewRepresentable {
            let documentView = nsView.documentView
         {
             // Calculate the horizontal position of the focused pane
-            // Assuming no spacing/dividers for now, adjust if needed
-            let targetX = paneWidth * CGFloat(currentFocusIndex)
+            // ACCOUNT FOR DIVIDERS: Assume 1pt width for each divider preceding the pane
+            let dividerWidth: CGFloat = 1.0
+            let targetX = (paneWidth * CGFloat(currentFocusIndex)) + (dividerWidth * CGFloat(currentFocusIndex))
+
             let targetRect = CGRect(x: targetX, y: 0, width: paneWidth, height: documentView.bounds.height)
 
             // Animate the scroll

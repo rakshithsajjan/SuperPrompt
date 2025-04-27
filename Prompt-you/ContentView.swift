@@ -130,15 +130,20 @@ struct ContentView: View {
                 .padding(10)
                 .background(.regularMaterial) // Keep distinct background
             }
-            // Add some default panes on launch for better initial state
-            .onAppear {
+            // Use .task for reliable one-time async setup on appear
+            .task {
+                // Attempt to load saved state first
+                model.loadPanesState()
+
+                // If loading resulted in no panes (e.g., first launch or cleared state),
+                // add the default panes.
                 if model.panes.isEmpty {
-                    model.addPane(provider: .chatGPT)
-                    model.addPane(provider: .claude)
-                    // Automatically focus the first pane on launch if needed
-                    if model.focusedPaneIndex == nil {
-                         model.setFocus(to: 0)
-                    }
+                    print("Startup: No saved panes found or loaded, adding defaults.")
+                    model.addPane(provider: .chatGPT) // This will trigger save
+                    model.addPane(provider: .claude)  // This will trigger save
+                    // Focus is handled automatically by addPane/loadPanesState
+                } else {
+                    print("Startup: Loaded \(model.panes.count) panes from saved state.")
                 }
             }
             
@@ -232,7 +237,8 @@ struct ContentView: View {
                     .keyboardShortcut("]", modifiers: [.command, .shift])
                     .disabled(model.panes.count <= 1) // Disable if only 0 or 1 pane
             }
-            .hidden()
+            // Use .opacity(0) instead of .hidden() as per review 4.8
+            .opacity(0)
          )
     }
 }
