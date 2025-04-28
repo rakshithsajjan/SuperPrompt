@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Represents the AI service provider for a pane.
-enum AIProvider: String, CaseIterable, Identifiable {
+enum AIProvider: String, CaseIterable, Identifiable, Codable {
     case you = "You.com"
     case chatGPT = "ChatGPT"
     // Add claude later
@@ -40,6 +40,9 @@ enum AIProvider: String, CaseIterable, Identifiable {
 
 @MainActor
 final class MainModel: ObservableObject {
+
+    // MARK: - Profiles
+    @Published var profileStore = ProfileStore()
 
     // UserDefaults keys
     private let savedProvidersKey = "savedPaneProviders_v1"
@@ -226,5 +229,50 @@ final class MainModel: ObservableObject {
                 print("Broadcast (Parallel): Cleared prompt text field.")
             }
         }
+    }
+
+    /// Loads the currently active profile's providers into panes.
+    func loadActiveProfile() {
+        guard let profile = profileStore.activeProfile else {
+            print("MainModel: No active profile to load.")
+            return
+        }
+        print("MainModel: Loading profile '\(profile.name)' with \(profile.providers.count) providers.")
+        // Rebuild panes based on profile
+        panes = profile.providers.map { provider in
+            let pane = ChatPane(provider: provider, title: provider.rawValue)
+            pane.isSelected = true
+            return pane
+        }
+        // Reset focus to first pane if available
+        focusedPaneIndex = panes.isEmpty ? nil : 0
+    }
+
+    // MARK: - New-tab picker -------------------------------------------------
+    func openNewTabPicker() {
+        let picker = ChatPane.newTabPicker()
+        panes.append(picker)
+        focusedPaneIndex = panes.count - 1          // focus the new one
+        savePanesState() // Save state after adding picker pane
+    }
+
+    func replacePicker(at index: Int, with provider: AIProvider) {
+        guard index >= 0, index < panes.count else { 
+            print("ReplacePicker Error: Index \(index) out of bounds (0..\(panes.count-1))")
+            return 
+        }
+        // Ensure we are replacing a picker pane
+        guard panes[index].isProviderPicker else {
+             print("ReplacePicker Warning: Pane at index \(index) is not a picker pane.")
+             return // Ensure this guard also exits
+        }
+
+        let realPane = ChatPane(provider: provider, title: provider.rawValue)
+        // Preserve selection state if needed, or just assume new pane is selected
+        // realPane.isSelected = panes[index].isSelected 
+        panes[index] = realPane
+        focusedPaneIndex = index                    // keep focus
+        savePanesState() // Save state after replacing picker with real pane
+        print("Replaced picker at index \(index) with \(provider.rawValue)")
     }
 }

@@ -87,3 +87,35 @@ A macOS SwiftUI application designed to broadcast user prompts simultaneously to
 *   Implement pane profiles.
 *   Implement provider restrictions for multiple instances.
 *   Further UI polish.
+
+## New Tab Functionality (Cmd+T)
+
+*   **Goal:** Implement a standard macOS "New Tab" behavior using Cmd+T. This should append a new, focused pane that initially shows an inline list of available AI providers. Selecting a provider replaces the list with a fully functional `ChatPane` loading that provider's URL, making the transition seamless.
+*   **Implementation Strategy:** Followed a detailed, additive plan designed to minimize changes to existing code:
+    1.  **`ChatPane.swift`:**
+        *   Added a boolean `@Published var isProviderPicker` flag to track the pane's temporary state.
+        *   Added a `loadOnInit: Bool = true` parameter to the `init` method (defaulting to `true` to maintain existing behavior) to prevent URL loading for picker panes.
+        *   Created a static factory method `newTabPicker()` that initializes a `ChatPane` with dummy data, `loadOnInit: false`, and sets `isProviderPicker = true`.
+    2.  **`MainModel.swift`:**
+        *   Added `openNewTabPicker()`: Called by the Cmd+T shortcut, this creates a picker pane using the factory, appends it to the `panes` array, sets `focusedPaneIndex` to the new pane, and saves state.
+        *   Added `replacePicker(at:with:)`: Called by the picker overlay's selection action, this replaces the placeholder pane at the given index with a standard `ChatPane` initialized with the chosen provider, keeps focus on that index, and saves state.
+    3.  **`ProviderPickerOverlay.swift` (New File):**
+        *   Created a simple, self-contained SwiftUI view that displays a list of `AIProvider` cases as buttons within a `.regularMaterial` background. It takes an `onSelect: (AIProvider) -> Void` closure which is executed when a provider button is clicked.
+    4.  **`ContentView.swift`:**
+        *   Added a hidden `Button` linked to the `model.openNewTabPicker()` action with the `.keyboardShortcut("t", modifiers: .command)`.
+        *   Modified the main `ForEach` loop iterating over `model.panes` to use `Array(model.panes.enumerated())` to gain access to the `index` (`idx`).
+        *   Inside the pane's `ZStack`, added a conditional block: `if pane.isProviderPicker { ProviderPickerOverlay { provider in model.replacePicker(at: idx, with: provider) } ... }`. This displays the overlay only when the flag is true and calls the `replacePicker` method with the correct index and selected provider.
+*   **Linter Issue & Resolution:**
+    *   Encountered a persistent linter error: `'guard' body must not fall through, consider using a 'return' or 'throw' to exit the scope`, initially pointing to the first `guard` statement in `MainModel.replacePicker` (line 269).
+    *   Initial attempts to add the missing `return` using the edit tool failed multiple times, even though file reads suggested the code *was* correct.
+    *   Realized the *second* `guard` statement (checking `isProviderPicker`) also lacked an exit in its `else` block. Adding a `return` there was also initially unsuccessful via the standard edit/reapply tools.
+    *   Resolved the issue by replacing the entire function block (`openNewTabPicker` and `replacePicker`) using the edit tool, which successfully included the `return` statements in *both* `guard` blocks' `else` clauses.
+
+## Current Functional State (Post Cmd+T)
+
+*   All previous functionality remains intact.
+*   Cmd+T successfully adds a new, focused pane displaying the provider picker overlay.
+*   Selecting a provider from the overlay correctly replaces the picker pane with a functional `ChatPane` for the chosen provider, which then loads the URL.
+
+---
+*Generated automatically to transfer context to a new LLM instance.*

@@ -1,8 +1,37 @@
 import SwiftUI
 import WebKit
+import AppKit
+
+// Define the delegate helper class within ContentView or globally if preferred
+fileprivate class PaneFocusCoordinator: PaneFocusDelegate {
+    let model: MainModel
+    let paneId: UUID // Use ID to reliably find the index later
+
+    init(model: MainModel, paneId: UUID) {
+        self.model = model
+        self.paneId = paneId
+    }
+
+    func paneRequestedFocus(_ sender: PaneWebView) {
+        // Ensure this runs on the main actor since we're updating the model
+        Task { @MainActor in
+            if let index = model.panes.firstIndex(where: { $0.id == self.paneId }) {
+                // Check if focus is already correct to avoid redundant updates
+                if model.focusedPaneIndex != index {
+                    print("PaneFocusCoordinator: Requesting focus for pane index \(index) (ID: \(paneId))")
+                    model.setFocus(to: index)
+                }
+            } else {
+                print("PaneFocusCoordinator: Could not find index for pane ID \(paneId)")
+            }
+        }
+    }
+}
 
 struct ContentView: View {
     @StateObject private var model = MainModel()
+    @State private var showingProfileSheet = false
+    @State private var showingAddPanePopover = false
     // Default width for panes
     private let paneWidth: CGFloat = 450
     // State for focus notification
@@ -10,6 +39,34 @@ struct ContentView: View {
     @State private var focusNotificationText = ""
     // State to track pane count changes for add notification
     @State private var previousPaneCount = 0
+    // Focus state for the main chat bar
+    @FocusState private var isChatBarFocused: Bool
+    // Store coordinators to keep them alive
+    @State private var focusCoordinators: [UUID: PaneFocusCoordinator] = [:]
+
+    /// Opens a new NSWindow displaying all available AI providers.
+    private func openLLMListWindow() {
+        // Declare window variable so it can be referenced in the closure
+        var window: NSWindow? = nil
+        let rootView = LLMListWindowView(onSelect: { provider in
+            // Add a new pane for the selected provider
+            model.addPane(provider: provider)
+            // Close the window
+            window?.close()
+        })
+        let hostingView = NSHostingView(rootView: rootView)
+        // Instantiate the window and center it
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 400),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window?.center()
+        window?.title = "Available LLMs"
+        window?.contentView = hostingView
+        window?.makeKeyAndOrderFront(nil)
+    }
 
     var body: some View {
         // ZStack to allow overlaying the notification
@@ -18,15 +75,33 @@ struct ContentView: View {
                 /*───── Horizontally Scrolling Browser Panes (using custom NSScrollView) ─────*/
                 HostingScrollView(content:
                     HStack(spacing: 0) {
-                        // Iterate over the DYNAMIC panes array
-                        ForEach(model.panes) { pane in
-                            // --- Pane View with Close Button ---
+                        // Use enumerated version
+                        ForEach(Array(model.panes.enumerated()), id: \.element.id) { idx, pane in
+                            // --- Restore ZStack structure directly --- 
                             ZStack(alignment: .topTrailing) {
-                                WebViewWrapper(pane.webView)
-                                    .frame(width: paneWidth) // Uses the constant paneWidth
-                                    .id(pane.id) // Ensure view updates on pane removal
 
-                                // Close Button Overlay
+                                // 1️⃣ Main content — show EITHER WebView OR a clear fill
+                                if pane.isProviderPicker {
+                                    Color.clear                // keeps the pane's width
+                                } else {
+                                    WebViewWrapper(pane.webView)
+                                        .id(pane.id) // ID is needed here
+                                        .onAppear {
+                                            // Keep delegate setup logic here
+                                            if focusCoordinators[pane.id] == nil {
+                                                let coordinator = PaneFocusCoordinator(model: model, paneId: pane.id)
+                                                focusCoordinators[pane.id] = coordinator
+                                                pane.webView.focusDelegate = coordinator
+                                                print("ContentView (onAppear): Set focus delegate for pane \(idx) (ID: \(pane.id))")
+                                            } else {
+                                                // Ensure delegate is still set
+                                                pane.webView.focusDelegate = focusCoordinators[pane.id]
+                                            }
+                                        }
+                                        // .onDisappear { ... } // Optional cleanup
+                                }
+
+                                // 2️⃣ Close button (Always present)
                                 Button {
                                     model.removePane(id: pane.id)
                                 } label: {
@@ -36,11 +111,29 @@ struct ContentView: View {
                                         .foregroundColor(.gray.opacity(0.7))
                                         .background(Circle().fill(.white.opacity(0.6)))
                                 }
-                                .buttonStyle(.plain) // Removes default button chrome
+                                .buttonStyle(.plain)
                                 .padding(5)
+
+                                // 3️⃣ Picker overlay – shown only in picker mode
+                                if pane.isProviderPicker {
+                                    ProviderPickerOverlay { provider in
+                                        model.replacePicker(at: idx, with: provider)
+                                    }
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity) // Fill available space
+                                    .transition(.opacity.combined(with: .scale))
+                                }
                             }
-                            // Only add Divider if it's not the last pane
-                            if pane.id != model.panes.last?.id {
+                            .frame(width: paneWidth)
+                            .overlay(
+                                Rectangle()
+                                    .stroke(idx == model.focusedPaneIndex ? Color.accentColor : .clear,
+                                            lineWidth: 2)
+                                    .allowsHitTesting(false) // Border doesn't interfere
+                            )
+                            .animation(.easeInOut(duration: 0.15), value: model.focusedPaneIndex) // Animate border change
+                            
+                            // --- Divider logic remains outside ZStack ---
+                            if idx != model.panes.count - 1 { // Use index check
                                  Divider() // Vertical divider between panes
                             }
                         }
@@ -55,6 +148,29 @@ struct ContentView: View {
 
                 /*───── Sleeker Bottom Control Bar ─────*/
                 HStack(alignment: .center, spacing: 8) { // Align items to center vertically
+                    // Profiles Menu
+                    Menu {
+                        ForEach(model.profileStore.profiles) { profile in
+                            Button(profile.name) {
+                                model.profileStore.setActiveProfile(id: profile.id)
+                                // Load panes for the newly selected profile
+                                model.loadActiveProfile()
+                            }
+                        }
+                        Divider()
+                        Button("Manage Profiles") {
+                            showingProfileSheet = true
+                        }
+                    } label: {
+                        Image(systemName: "person.crop.circle")
+                            .imageScale(.medium)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .frame(height: 20)
+                    .fixedSize()
+                    .disabled(model.isBroadcasting)
+                    
                     // Add Pane Menu Button (Left Aligned)
                     Menu {
                         ForEach(AIProvider.allCases) { provider in
@@ -68,7 +184,8 @@ struct ContentView: View {
                             .imageScale(.medium)
                     }
                     .menuStyle(.borderlessButton)
-                    .frame(height: 20) // Match textfield/button height
+                    .menuIndicator(.hidden)
+                    .frame(height: 20)
                     .fixedSize()
                     .disabled(model.isBroadcasting)
 
@@ -84,12 +201,14 @@ struct ContentView: View {
                             // Styling to mimic TextField
                             .padding(EdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5))
                             .background( TransparentRepresentable() ) // Use a transparent background helper for TextEditor
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .clipShape(Rectangle()) // Use Rectangle for sharp corners
                             .overlay(
-                               RoundedRectangle(cornerRadius: 6)
+                               Rectangle() // Use Rectangle for sharp corners
                                    .stroke(Color.gray.opacity(0.5), lineWidth: 0.5)
                             )
                             .disabled(model.isBroadcasting)
+                            // Bind focus state
+                            .focused($isChatBarFocused)
 
                         // Placeholder Text
                         if model.promptText.isEmpty {
@@ -102,6 +221,12 @@ struct ContentView: View {
                     }
                     .frame(maxWidth: 600) // Limit width of the input area
                     .disabled(model.isBroadcasting)
+                    // Add subtle glow effect when focused
+                    .shadow(
+                        color: Color.accentColor.opacity(isChatBarFocused ? 0.8 : 0),
+                        radius: isChatBarFocused ? 10 : 0, x: 0, y: 0
+                    )
+                    .animation(.easeInOut(duration: 0.2), value: isChatBarFocused) // Animate the glow change
 
                     // Visible Send Button
                     Button {
@@ -159,16 +284,57 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             }
         }
+        // Popover for Add Pane triggered by Cmd+Plus
+        .popover(isPresented: $showingAddPanePopover, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Add Pane").font(.headline)
+                Divider()
+                ForEach(AIProvider.allCases) { provider in
+                    Button(provider.rawValue) {
+                        model.addPane(provider: provider)
+                        showingAddPanePopover = false
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .padding()
+            .frame(minWidth: 200)
+        }
         // Force the VStack content to extend under the top safe area (window controls)
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 500, minHeight: 400) // Adjusted min size
+        // Clear pane focus when chat bar becomes focused
+        .onChange(of: isChatBarFocused) { isFocused in
+            if isFocused {
+                print("Chat bar focused, clearing pane focus.")
+                model.focusedPaneIndex = nil
+                // Save state since focus changed
+                model.savePanesState()
+            }
+        }
         // --- Focus Management ---
         .onChange(of: model.focusedPaneIndex) { newIndex in
-            guard let index = newIndex, index >= 0 && index < model.panes.count else { return }
-            let targetWebView = model.panes[index].webView
-            let paneTitle = model.panes[index].title
+            guard let index = newIndex, index >= 0 && index < model.panes.count else { 
+                // Use String(describing:) for safe interpolation of the optional Int
+                print("Focus onChange: Invalid index (\(String(describing: newIndex))) or panes empty.")
+                return 
+            }
+            
+            // NEW: If it's the picker, do nothing – ProviderPickerOverlay will claim focus.
+            if model.panes[index].isProviderPicker { 
+                 print("Focus onChange: Pane \(index) is picker, skipping webview focus.")
+                 return 
+            }
+
+            // --- If not picker, proceed with focusing the WebView ---
+            let pane = model.panes[index]
+            let paneTitle = pane.title // Get title regardless of type
+            
+            // 2️⃣ Normal Pane: Focus the WKWebView
+            print("Focus onChange: Pane \(index) is normal. Attempting to focus its WebView.")
+            let targetWebView = pane.webView
             // Ensure the webView is part of the window hierarchy before making it first responder
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { // Still good practice to async this
                  if let window = targetWebView.window {
                      print("Attempting to focus pane index: \(index), view: \(targetWebView)")
                      let success = window.makeFirstResponder(targetWebView)
@@ -220,26 +386,28 @@ struct ContentView: View {
         }
         // Add hidden buttons for keyboard shortcuts
         .background(
-            // Use a Group for Command+Number shortcuts (1-9)
-            Group {
-                ForEach(1..<10) { number in // Create shortcuts for Cmd+1 to Cmd+9
-                    Button("") { model.setFocus(to: number - 1) } // Action sets focus
-                        .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
-                        .disabled(number > model.panes.count) // Disable if pane doesn't exist
+            // Instantiate the extracted view
+            ShortcutHandlerView(
+                model: model,
+                showingAddPanePopover: $showingAddPanePopover,
+                showingProfileSheet: $showingProfileSheet,
+                focusChatBar: { // Provide the closure for focusing the chat bar
+                    // Logic previously in the Cmd+F button action
+                    if model.focusedPaneIndex != nil {
+                        print("Cmd+F via ShortcutHandler: Clearing pane focus.")
+                        model.focusedPaneIndex = nil
+                        model.savePanesState()
+                    }
+                    print("Cmd+F via ShortcutHandler: Setting chat bar focus state.")
+                    isChatBarFocused = true
                 }
-                
-                // Add buttons for cycling focus
-                Button("") { model.cycleFocus(forward: false) } // Previous Pane
-                    .keyboardShortcut("[", modifiers: [.command, .shift])
-                    .disabled(model.panes.count <= 1) // Disable if only 0 or 1 pane
-                
-                Button("") { model.cycleFocus(forward: true) } // Next Pane
-                    .keyboardShortcut("]", modifiers: [.command, .shift])
-                    .disabled(model.panes.count <= 1) // Disable if only 0 or 1 pane
-            }
-            // Use .opacity(0) instead of .hidden() as per review 4.8
-            .opacity(0)
+            )
+            // Opacity modifier is now inside ShortcutHandlerView
          )
+        // Profile Management Sheet
+        .sheet(isPresented: $showingProfileSheet) {
+            ProfileManagementView(profileStore: model.profileStore)
+        }
     }
 }
 
@@ -258,19 +426,12 @@ private struct TransparentRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-/* SwiftUI wrapper that embeds the existing WKWebView instance. */
-private struct WebViewWrapper: NSViewRepresentable {
-    // Accept the subclass type
-    let wk: PaneWebView
-    init(_ w: PaneWebView) { self.wk = w }
+// MARK: - NSView Extension Helper -
 
-    func makeNSView(context: Context) -> PaneWebView {
-        // Pass the existing instance
-        return wk
-    }
+// extension NSView { ... }
 
-    func updateNSView(_ nsView: PaneWebView, context: Context) {
-        // No need for the previous erroneous code here
-        // The scroll handling is now done within the NoHorizontalScrollWebView subclass
-    }
-}
+// MARK: - Previews -
+
+#if DEBUG
+// ... existing preview code ...
+#endif

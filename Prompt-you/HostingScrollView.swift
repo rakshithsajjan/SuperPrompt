@@ -29,11 +29,11 @@ struct HostingScrollView<Content: View>: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = false // We only want horizontal scrolling
-        scrollView.hasHorizontalScroller = true
+        scrollView.hasHorizontalScroller = false // Hide the horizontal scroller
         scrollView.horizontalScrollElasticity = .none // Remove rubber-band effect
         scrollView.automaticallyAdjustsContentInsets = false // Prevent system adjustments
-        scrollView.contentInsets = NSEdgeInsets() // Explicitly set zero insets using default initializer
-        scrollView.autohidesScrollers = true
+        scrollView.contentInsets = NSEdgeInsets() // Explicitly set zero insets
+        // scrollView.autohidesScrollers = true // Not needed if scroller is always hidden
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false // Use SwiftUI background if needed
 
@@ -101,26 +101,57 @@ struct HostingScrollView<Content: View>: NSViewRepresentable {
            currentFocusIndex != context.coordinator.previousFocusedPaneIndex,
            currentFocusIndex >= 0,
            currentFocusIndex < paneCount,
-           let documentView = nsView.documentView
+           let documentView = nsView.documentView,
+           let clipView = nsView.contentView as? NSClipView // Get the clip view
         {
-            // Calculate the horizontal position of the focused pane
-            // ACCOUNT FOR DIVIDERS: Assume 1pt width for each divider preceding the pane
-            let dividerWidth: CGFloat = 1.0
-            let targetX = (paneWidth * CGFloat(currentFocusIndex)) + (dividerWidth * CGFloat(currentFocusIndex))
+            let dividerWidth: CGFloat = 1.0 // Assumed divider width
+            let visibleRect = clipView.documentVisibleRect // Use the visible rect of the document
+            let totalContentWidth = (paneWidth * CGFloat(paneCount)) + (dividerWidth * CGFloat(max(0, paneCount - 1)))
+            let maxXScrollOffset = max(0, totalContentWidth - visibleRect.width)
 
-            let targetRect = CGRect(x: targetX, y: 0, width: paneWidth, height: documentView.bounds.height)
+            // Calculate the frame of the target pane within the documentView
+            let targetPaneMinX = (paneWidth * CGFloat(currentFocusIndex)) + (dividerWidth * CGFloat(currentFocusIndex))
+            let targetPaneRect = CGRect(x: targetPaneMinX, y: 0, width: paneWidth, height: documentView.bounds.height)
 
-            // Animate the scroll
-            // Using NSAnimationContext for smoother scrolling
-            NSAnimationContext.runAnimationGroup({
-                context in
-                context.duration = 0.3 // Adjust duration as needed
-                context.allowsImplicitAnimation = true
-                nsView.contentView.scroll(to: CGPoint(x: targetX, y: 0))
-                nsView.reflectScrolledClipView(nsView.contentView) // Ensure scrollers update
-            }, completionHandler: nil)
+            // --- Calculate required scroll --- 
+            var targetScrollPointX = visibleRect.origin.x // Default to current scroll position
 
-            print("HostingScrollView: Scrolled to index \(currentFocusIndex), rect: \(targetRect)")
+            if visibleRect.contains(targetPaneRect) {
+                // Pane is already fully visible, no scroll needed
+                 print("HostingScrollView: Pane \(currentFocusIndex) already visible. No scroll.")
+            } else {
+                // Pane is not fully visible, calculate scroll adjustment
+                if targetPaneRect.minX < visibleRect.minX {
+                    // Scroll right to bring leading edge into view
+                    targetScrollPointX = targetPaneRect.minX
+                } else if targetPaneRect.maxX > visibleRect.maxX {
+                    // Scroll left to bring trailing edge into view
+                    targetScrollPointX = targetPaneRect.maxX - visibleRect.width
+                }
+                // If neither edge is out, but it wasn't contained, it might be taller than visibleRect?
+                // In our horizontal-only case, this shouldn't happen unless paneWidth > visibleWidth.
+                // If paneWidth > visibleWidth, we default to scrolling leading edge into view:
+                else if paneWidth > visibleRect.width {
+                     targetScrollPointX = targetPaneRect.minX
+                }
+
+                // Clamp the calculated scroll point
+                targetScrollPointX = max(0, min(targetScrollPointX, maxXScrollOffset))
+
+                 // Only animate if the target is different from current origin
+                if abs(targetScrollPointX - visibleRect.origin.x) > 0.1 { // Tolerance
+                    print("HostingScrollView: Scrolling to make pane \(currentFocusIndex) visible. TargetX=\(targetScrollPointX)")
+                    NSAnimationContext.runAnimationGroup({
+                        context in
+                        context.duration = 0.3 // Adjust duration as needed
+                        context.allowsImplicitAnimation = true
+                        clipView.scroll(to: CGPoint(x: targetScrollPointX, y: 0))
+                        nsView.reflectScrolledClipView(clipView) // Ensure scrollers update
+                    }, completionHandler: nil)
+                } else {
+                     print("HostingScrollView: Pane \(currentFocusIndex) requires no scroll adjustment (TargetX=\(targetScrollPointX) ≈ CurrentOriginX=\(visibleRect.origin.x)).")
+                }
+            }
         }
 
         // Update coordinator with the latest index

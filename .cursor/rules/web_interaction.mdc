@@ -1,0 +1,26 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Web Interaction & Prompt Sending
+
+Interacting with the underlying AI chat web interfaces hosted in `WKWebView` panes involves JavaScript injection and careful state management.
+
+- **Shared Context:** [`SharedWebKit.swift`](mdc:Prompt-you/SharedWebKit.swift) defines a static `WKProcessPool` (`SharedWebKit.pool`) which is used in the configuration for all `WKWebView` instances. This ensures that cookies, `localStorage`, and `sessionStorage` are shared across all panes, allowing users to log in once.
+
+- **Providers:** The different AI services are defined in the `AIProvider` enum within [`MainModel.swift`](mdc:Prompt-you/MainModel.swift). Each case has a `defaultUrl`.
+
+- **Sending Prompts:**
+    1. The user types into the `TextEditor` in [`ContentView.swift`](mdc:Prompt-you/ContentView.swift), which binds to `model.promptText` in [`MainModel.swift`](mdc:Prompt-you/MainModel.swift).
+    2. Clicking the Send button or pressing Cmd+Enter triggers `model.broadcast()`.
+    3. `broadcast()` iterates through the active `panes` array.
+    4. For each pane, it calls `pane.sendCurrentPrompt(promptText:)` defined in [`ChatPane.swift`](mdc:Prompt-you/ChatPane.swift).
+
+- **Provider-Specific JavaScript:**
+    *   `sendCurrentPrompt` contains a `switch` statement based on `pane.provider`.
+    *   Each case constructs a specific JavaScript string tailored to the target website's DOM structure and event handling needs (e.g., finding the correct `textarea` or `contenteditable` div, setting its value using appropriate methods like `.value`, `.textContent`, or native setters, dispatching `input` or other events, finding and clicking the correct submit button).
+    *   Techniques include using specific selectors, handling `disabled` or `aria-disabled` states on buttons, using `setTimeout` for framework delays, and navigating Shadow DOM where necessary (e.g., Mistral).
+    *   The JavaScript execution result (success/error codes) is returned asynchronously.
+
+See also: `architecture.mdc`, `state_management.mdc`.

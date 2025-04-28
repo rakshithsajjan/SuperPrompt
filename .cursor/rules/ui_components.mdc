@@ -1,0 +1,34 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Custom UI Components & Representables
+
+Several custom views and `NSViewRepresentable` wrappers are used to achieve the desired layout and behavior:
+
+- **[`HostingScrollView.swift`](mdc:Prompt-you/HostingScrollView.swift):**
+    - An `NSViewRepresentable` that wraps an `NSScrollView`.
+    - Configured for horizontal-only scrolling.
+    - Hosts the SwiftUI `HStack` of panes within an `NSHostingView` set as its `documentView`.
+    - Crucial for preventing scroll event conflicts between the outer scroll view and the inner `WKWebView` scroll views.
+    - Includes logic to automatically scroll the focused pane into view.
+
+- **[`PaneWebView.swift`](mdc:Prompt-you/PaneWebView.swift):**
+    - A `WKWebView` subclass.
+    - Overrides `scrollWheel(with:)` to filter scroll events, passing horizontal/momentum events to the `nextResponder` (the `HostingScrollView`) while handling vertical events itself.
+    - Overrides `becomeFirstResponder()` and `mouseDown(with:)` to notify a `PaneFocusDelegate` ([`ContentView`](mdc:Prompt-you/ContentView.swift)) when the web view gains focus or is clicked, allowing the application to update the `focusedPaneIndex` in `MainModel`.
+
+- **[`WebViewWrapper.swift`](mdc:Prompt-you/ContentView.swift):**
+    - A minimal `NSViewRepresentable` used within `ContentView`'s `ZStack` for each pane.
+    - Its primary purpose is to embed the existing `PaneWebView` instance into the SwiftUI view hierarchy.
+    - **Note:** This is conditionally rendered in `ContentView` based on `pane.isProviderPicker` to avoid event conflicts during the new tab flow.
+
+- **[`ProviderPickerOverlay.swift`](mdc:Prompt-you/ProviderPickerOverlay.swift):**
+    - A pure SwiftUI view displayed temporarily when a new pane is created via Cmd+T (`pane.isProviderPicker == true`).
+    - Uses a SwiftUI `List` to display available `AIProvider`s.
+    - Designed for keyboard navigation (arrows + Enter via `.defaultAction`) and mouse interaction.
+    - Calls `model.replacePicker` upon selection.
+    - Includes `.onAppear` logic to attempt making the underlying `NSTableView` the first responder.
+
+See also: `architecture.mdc`, `new_tab.mdc`.

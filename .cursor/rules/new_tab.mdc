@@ -1,0 +1,40 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# New Tab Feature (Cmd+T)
+
+This feature allows users to add a new pane by pressing Cmd+T, presenting an inline provider picker.
+
+## Workflow
+
+1.  **Trigger:** The user presses Cmd+T. A hidden `Button` in [`ContentView.swift`](mdc:Prompt-you/ContentView.swift) with the `.keyboardShortcut("t", modifiers: .command)` triggers the action.
+2.  **Create Picker Pane:** The shortcut calls `model.openNewTabPicker()` in [`MainModel.swift`](mdc:Prompt-you/MainModel.swift).
+    *   This method uses the static factory `ChatPane.newTabPicker()` ([`ChatPane.swift`](mdc:Prompt-you/ChatPane.swift)).
+    *   `newTabPicker()` creates a `ChatPane` instance with:
+        *   `isProviderPicker = true` (Flag indicating picker mode).
+        *   `loadOnInit = false` (Prevents the dummy provider URL from loading).
+        *   `isSelected = false` (Hides the underlying `WKWebView` visually).
+    *   The new picker pane is appended to `model.panes`.
+    *   `model.focusedPaneIndex` is set to the index of this new pane.
+3.  **Conditional Rendering:** [`ContentView.swift`](mdc:Prompt-you/ContentView.swift) detects the new pane and its state.
+    *   In the `ForEach` loop, the main content section uses `if pane.isProviderPicker`. Since it's true:
+        *   `Color.clear` is rendered instead of `WebViewWrapper`. The `WKWebView` is *not* added to the view hierarchy.
+    *   The picker overlay section also uses `if pane.isProviderPicker`. Since it's true:
+        *   [`ProviderPickerOverlay.swift`](mdc:Prompt-you/ProviderPickerOverlay.swift) is displayed.
+4.  **User Interaction:**
+    *   The `ProviderPickerOverlay` appears, showing a `List` of providers.
+    *   Its `.onAppear` attempts to make the list's `NSTableView` the first responder.
+    *   The user can select a provider using mouse clicks or keyboard navigation (Arrows + Enter).
+5.  **Replace Pane:** Selecting a provider triggers the `onSelect` closure within `ProviderPickerOverlay`.
+    *   This closure calls `model.replacePicker(at: idx, with: provider)` in [`MainModel.swift`](mdc:Prompt-you/MainModel.swift).
+    *   `replacePicker` replaces the placeholder `ChatPane` at the specified index with a new, standard `ChatPane` initialized with the selected `provider` (and `loadOnInit = true` by default).
+    *   Focus remains on the same index.
+6.  **View Update:** [`ContentView.swift`](mdc:Prompt-you/ContentView.swift) refreshes.
+    *   For the updated pane, `isProviderPicker` is now `false`.
+    *   The main content `if` branch now renders the `WebViewWrapper` containing the `WKWebView`.
+    *   The picker overlay `if` branch condition is false, so the overlay is removed.
+    *   The `WKWebView` begins loading the selected provider's URL.
+
+See also: `architecture.mdc`, `state_management.mdc`, `ui_components.mdc`.

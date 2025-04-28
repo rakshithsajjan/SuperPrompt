@@ -8,6 +8,8 @@ final class ChatPane: ObservableObject, Identifiable {
     let title    : String
     let provider : AIProvider
 
+    @Published var isProviderPicker = false   // <── NEW
+
     @Published var isSelected: Bool = true {
         didSet { webView.isHidden = !isSelected }
     }
@@ -18,14 +20,21 @@ final class ChatPane: ObservableObject, Identifiable {
         configuration: SharedWebKit.configuration()
     )
 
-    init(provider: AIProvider, title: String) {
+    init(provider: AIProvider,
+         title: String,
+         loadOnInit: Bool = true)           // default = current behaviour
+    {
         self.provider = provider
         self.title = title // Use provided title
 
-        guard let url = provider.defaultUrl else {
-            // Handle error case: maybe load about:blank or show an error message?
-            print("Error: Could not get default URL for provider \(provider.rawValue)")
-            // For now, just create the webview without loading
+        // Only load URL if requested and valid
+        guard loadOnInit,
+              let url = provider.defaultUrl else {
+            // Handle error case or simply don't load if loadOnInit is false
+            if loadOnInit { // Only print error if loading was intended
+                print("Error: Could not get default URL for provider \(provider.rawValue)")
+            }
+            // For now, just create the webview without loading if loadOnInit is false or URL is invalid
             return
         }
 
@@ -34,6 +43,16 @@ final class ChatPane: ObservableObject, Identifiable {
             // Ensure webView is initialized before loading
             await self.webView.load(request)
         }
+    }
+
+    // convenience ctor used **only** for the new-tab picker
+    static func newTabPicker() -> ChatPane {
+        // use any provider – we are *not* going to load it yet
+        let pane = ChatPane(provider: .chatGPT, title: "New tab", loadOnInit: false)
+        pane.isProviderPicker = true                       // flag it
+        pane.isSelected       = false                    // Keep WKWebView hidden
+        pane.webView.resignFirstResponder()              // 🆕 Force old view to let go
+        return pane
     }
 
     /// Sets prompt and clicks submit based on the provider.
