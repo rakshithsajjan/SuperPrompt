@@ -1,7 +1,54 @@
+# Custom user ignores
 try.py
 rules.py
-.cursor
+.cursor/
 dump.md
 prd.md
 prompt_you_swift_extract.md
+
+# General macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db
+
+# Xcode - General
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# Xcode - Build products
+build/
+DerivedData/
+*.app
+*.ipa
+
+# Xcode - User Specific
+*.xcuserstate
+
+# Swift Package Manager
+.build/
+Packages/
+*.resolved
+
+# Cocoapods
+Pods/
+
+# Carthage
+Carthage/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# Generated Playgrounds
+*.playground
 
